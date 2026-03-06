@@ -15,7 +15,7 @@ This repository contains the Phase 1 implementation of the MotorPH Payroll Syste
 ---
 ### Team Details
 - **Deborah  - Code (Payroll System)**
-- **Charmaine - Code (Deductions and Salary)**
+- **Czarmaine - Code (Deductions and Salary)**
 - **Abigail - GitHub**
 - **Aila - GitHub**
 
