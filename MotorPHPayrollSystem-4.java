@@ -110,6 +110,7 @@ public class MotorPHPayrollSystem {
 
         String name = info[0];
         String birthday = info[1];
+        
         double rate = Double.parseDouble(info[2]);
 
         // Compute hours worked for the selected cutoff period
@@ -213,26 +214,34 @@ public class MotorPHPayrollSystem {
             InputStream file = MotorPHPayrollSystem.class
                     .getClassLoader().getResourceAsStream("employees.csv");
 
-            BufferedReader reader =
-                    new BufferedReader(new InputStreamReader(file));
-
+            if (file == null) {
+                System.out.println("employees.csv file not found."); 
+                return null;
+            }
+            
+            BufferedReader reader = new BufferedReader(new InputStreamReader(file));
             reader.readLine(); // skip header
             String line;
 
             while ((line = reader.readLine()) != null) {
 
                 // Support both TAB and COMMA separated files
-                String[] data = line.contains("\t") ? line.split("\t") : line.split(",");
+                String[] data = line.contains("\t") 
+                        ? line.split("\t") 
+                        : line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
+                if (data.length < 19) continue;
                 
-
-                if (data[0].trim().equals(id)) {
+                if (!data[0].replace("\"","").trim().equals(id)) continue;
+            
+                    String name = data[2].trim() + " " + data[1].trim(); // First + Last
+                    String birthday = data[3].trim();                    // birthday
+                    String rate = data[18]
+                            .replace(",", "")
+                            .replace("\"", "")
+                            .trim(); // hourly rate              
+                    
                     reader.close();
-                    return new String[]{
-                            data[1].trim(), // name
-                            data[2].trim(), // birthday
-                            data[3].trim() // hourly rate
-                    };
-                }
+                    return new String[]{ name, birthday, rate };
             }
 
             reader.close();
@@ -255,36 +264,59 @@ public class MotorPHPayrollSystem {
 
             InputStream file = MotorPHPayrollSystem.class
                     .getClassLoader().getResourceAsStream("attendance.csv");
+            
+            if (file == null) {
+                System.out.println("attendance.csv file not found.");
+                return 0;
+        }
 
             BufferedReader reader =
                     new BufferedReader(new InputStreamReader(file));
 
-            reader.readLine();
+            reader.readLine(); // skip header
             String line;
 
             while ((line = reader.readLine()) != null) {
 
                 String[] data = line.contains("\t") ? line.split("\t") : line.split(",");
 
-                if (!data[0].trim().equals(id)) continue;
-
-                String date = data[1].trim();
-                int day;
-
-                // Extract the day number from the date
-                if (date.contains("/")) {
-                    day = Integer.parseInt(date.split("/")[1]);
-                } else {
-                    day = Integer.parseInt(date.split("-")[2]);
-                }
-
-                // Filter based on cutoff period
+                // Ensure the row has all required columns
+                if (data.length < 6) continue;
+                
+                // Match employee
+                String empId = data[0].replace("\"", "").replace(".0","").trim();
+                if (!empId.equals(id)) continue;
+                
+                 // Parse date
+                String dateStr = data[3].replace("\"", "").trim(); // Date column
+                String[] parts;
+                int month, day, year;
+                
+                if (dateStr.contains("/")) { // MM/DD/YYYY
+                    parts = dateStr.split("/");
+                    month = Integer.parseInt(parts[0]);
+                    day = Integer.parseInt(parts[1]);
+                    year = Integer.parseInt(parts[2]);
+                } else { // YYYY-MM-DD
+                    parts = dateStr.split("-");
+                    year = Integer.parseInt(parts[0]);
+                    month = Integer.parseInt(parts[1]);
+                    day = Integer.parseInt(parts[2]);
+            }
+                
+                // Only include current month (optional, adjust month/year as needed)
+                // Example: only include June 2024
+                if (month != 6 || year != 2024) continue;
+                
+                // Filter by cutoff
                 if (cutoff == 1 && day > 15) continue;
                 if (cutoff == 2 && day <= 15) continue;
-
-                totalHours += calculateDailyHours(
-                        data[2].trim(),
-                        data[3].trim());
+                
+                String timeIn = data[4].replace("\"", "").trim();
+                String timeOut = data[5].replace("\"", "").trim();
+                
+                // Add daily hours (calculateDailyHours caps at 8)
+                totalHours += calculateDailyHours(timeIn, timeOut);
             }
 
             reader.close();
@@ -305,26 +337,39 @@ public class MotorPHPayrollSystem {
         // Grace period until 8:05 AM
         if (inTime <= 8.0833) inTime = 8.0;
 
-        // Work hours capped at 5 PM
-        if (outTime > 17.0) outTime = 17.0;
-
+        // Cap earliest start and latest end (optional, if needed)
+        if (outTime > 17.0) outTime = 17.0; // keep as standard cutoff
+        if (inTime < 8.0) inTime = 8.0;
+        
+        // Calculate raw hours
         double hours = outTime - inTime;
+        
+        // Cap maximum work hours per day to 8
+        if (hours > 8) hours = 8;
 
         return Math.max(hours, 0);
     }
 
     // Converts AM/PM time format into decimal hours
     public static double convertTime(String time) {
+        
+        time = time.trim().toLowerCase();
+        
+        boolean isPM = time.contains("pm");
+        boolean isAM = time.contains("am");
+        
+        // Remove AM/PM if present
+        time = time.replace("am", "").replace("pm", "").trim();
 
-        String[] periodSplit = time.toLowerCase().split(" ");
-        String[] timeSplit = periodSplit[0].split(":");
+        String[] parts = time.split(":");
+        
+        int hour = Integer.parseInt(parts[0]);
+        int min = (parts.length > 1) ? Integer.parseInt(parts[1]) : 0;
+        int sec = (parts.length > 2) ? Integer.parseInt(parts[2]) : 0;
 
-        int hour = Integer.parseInt(timeSplit[0]);
-        int min = Integer.parseInt(timeSplit[1]);
-        int sec = Integer.parseInt(timeSplit[2]);
-
-        if (periodSplit[1].equals("pm") && hour != 12) hour += 12;
-        if (periodSplit[1].equals("am") && hour == 12) hour = 0;
+        // Convert to 24-hour format if AM/PM exists
+        if (isPM && hour != 12) hour += 12;
+        if (isAM && hour == 12) hour = 0;
 
         return hour + (min / 60.0) + (sec / 3600.0);
     }
@@ -377,12 +422,12 @@ public class MotorPHPayrollSystem {
         System.out.println("Employee ID: " + id);
         System.out.println("Name: " + name);
         System.out.println("Birthday: " + birthday);
-        System.out.println("Total Hours: " + hours);
-        System.out.println("Gross Pay: " + gross);
-        System.out.println("SSS: " + sss);
-        System.out.println("PhilHealth: " + philhealth);
-        System.out.println("PagIBIG: " + pagibig);
-        System.out.println("Tax: " + tax);
-        System.out.println("Net Pay: " + net);
+        System.out.printf("Total Hours: %.2f\n", hours);
+        System.out.printf("Gross Pay: %.2f\n", gross);
+        System.out.printf("SSS: %.2f\n", sss);
+        System.out.printf("PhilHealth: %.2f\n", philhealth);
+        System.out.printf("PagIBIG: %.2f\n", pagibig);
+        System.out.printf("Tax: %.2f\n", tax);
+        System.out.printf("Net Pay: %.2f\n", net);
     }
 }
